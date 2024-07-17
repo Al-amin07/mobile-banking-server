@@ -5,7 +5,7 @@ const cors = require('cors');
 const app = express();
 const jwt = require('jsonwebtoken');
 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174'],
   credentials: true
@@ -67,6 +67,10 @@ async function run() {
       if(!result) return res.send({message: 'Incorrect Pin'})
       next()
     });
+    }
+
+    const verifyAgent = async(req, res, next) => {
+
     }
 
     // Role
@@ -188,6 +192,29 @@ async function run() {
       res.send({result, message: 'ok'})
     })
 
+    app.post('/cashoutbyagent', async(req, res) => {
+      const { _id, email, agent, amount, type } = req.body;
+      const user = await usersCollection.findOne({email})
+      const agentUser = await usersCollection.findOne({email: agent})
+      const updatedDoc = {
+        $set: {
+          balance: user.balance - parseFloat(amount)
+        }
+      }
+      const updatedDoc2 = {
+        $set: {
+          balance: agentUser.balance + parseFloat(amount)
+        }
+      }
+
+      const userresult = await usersCollection.updateOne({email}, updatedDoc)
+      const agentresult = await usersCollection.updateOne({email: agent}, updatedDoc2)
+      console.log(_id)
+      const deletePending = await pendingPaymentsCollection.deleteOne({_id : new ObjectId(_id)})
+      // console.log(deletePending)
+      res.send({userresult, agentresult, deletePending})
+    })
+
     // Cash In
 
 
@@ -196,6 +223,26 @@ async function run() {
       console.log(details)
       const result = await pendingPaymentsCollection.insertOne(details)
       res.send({result, message: 'ok'})
+    })
+
+    app.post('/cashinbyagent', async(req, res) => {
+      const { _id, email, agent, amount, type } = req.body;
+      const user = await usersCollection.findOne({email})
+      const agentUser = await usersCollection.findOne({email: agent})
+      const updatedDoc = {
+        $set: {
+          balance: user?.balance + parseFloat(amount)
+        }
+      }
+      const updatedDoc2 = {
+        $set: {
+          balance: agentUser?.balance - parseFloat(amount)
+        }
+      }
+      const userresult = await usersCollection.updateOne({email}, updatedDoc)
+      const agentresult = await usersCollection.updateOne({email: agent}, updatedDoc2)
+      const deletePending = await pendingPaymentsCollection.deleteOne({_id: new ObjectId(_id)})
+      res.send({userresult, agentresult, deletePending})
     })
 
     app.get('/requests', async(req, res) => {
