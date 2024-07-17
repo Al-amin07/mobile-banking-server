@@ -53,6 +53,21 @@ async function run() {
   try {
 
     const usersCollection = await client.db("mobile").collection("users");
+    const paymentsCollection = await client.db("mobile").collection("payments");
+    const pendingPaymentsCollection = await client.db("mobile").collection("pendingPayments");
+
+    // Verift Pin
+
+    const verifyPin = async(req , res, next) => {
+   
+      const users = req.body;
+      const user = await usersCollection.findOne({email: users.email})
+      bcrypt.compare(users.pin, user.pin, function(err, result) {
+      
+      if(!result) return res.send({message: 'Incorrect Pin'})
+      next()
+    });
+    }
 
     // Role
 
@@ -60,6 +75,13 @@ async function run() {
       const query = { email : req.params.email}
       const result = await usersCollection.findOne(query)
       res.send(result.role)
+    })
+
+    // Agents
+
+    app.get('/agents', async(req, res) => {
+      const result = await usersCollection.find({role: 'agent'}).toArray();
+      res.send(result)
     })
 
     // users Register and Login
@@ -79,7 +101,7 @@ async function run() {
           pin: hash
 
         }
-        console.log(newUser)
+        // console.log(newUser)
         const result = await usersCollection.insertOne(newUser)
         return res.send(result)
 
@@ -95,11 +117,11 @@ async function run() {
         bcrypt.compare(password, isExist.pin, function (err, result) {
           // result == true
           // console.log(result)
-          if (!result) return res.send({ message: 'Pin Incorrect' })
+          if (!result) return res.send({ message: 'Incorrect Pin' })
           const token = jwt.sign(isExist, process.env.SECRET, { expiresIn: '1d' })
           res
             .status(200)
-            .send({ user: isExist, token: token })
+            .send({ user: isExist, message: 'ok', token: token })
         });
       }
       else {
@@ -115,7 +137,7 @@ async function run() {
     })
 
     app.get('/user', async (req, res) => {
-      console.log(req.headers.authorization)
+      // console.log(req.headers.authorization)
      
       const token = req.headers.authorization.split(' ')[1];
 
@@ -124,13 +146,68 @@ async function run() {
         req.user = decoded;
         let data;
        if(!decoded) return res.send(null)
-       console.log(req.user.email)
+      //  console.log(req.user.email)
       const query = { email: req.user.email}
       const result = await usersCollection.findOne(query);
       return res.send(result)
 
 
       })
+    })
+
+    // Send MOney 
+
+    app.post('/sendmoney',verifyPin,verifyToken, async(req, res) => {
+      console.log('Send')
+      const userDetails = req.body;
+      const user = await usersCollection.findOne({email: userDetails.email})
+      const updatedUser = await usersCollection.findOne({email: userDetails.paidUserEmail})
+      const payments = await paymentsCollection.insertOne({email: userDetails.email, type: 'Send Money', balance: parseFloat(userDetails.amount),to:userDetails.paidUserEmail, time: new Date().toLocaleDateString()} )
+      const updatedDoc = {
+        $set: {
+          balance: parseFloat(updatedUser.balance) + parseFloat(userDetails.amount)
+        }
+      }
+
+      const updatedDoc2 = {
+        $set: {
+          balance: parseFloat(user.balance) - parseFloat(userDetails.amount)
+        }
+      }
+      const result = await usersCollection.updateOne({email: userDetails.email}, updatedDoc2)
+      const result2 = await usersCollection.updateOne({email: userDetails.paidUserEmail}, updatedDoc)
+      res.send(result)
+    })
+
+    // CashOut
+    
+    app.post('/cashout',verifyPin, verifyToken,  async(req, res) => {
+      const details = req.body;
+      console.log(details)
+      const result = await pendingPaymentsCollection.insertOne(details)
+      res.send({result, message: 'ok'})
+    })
+
+    // Cash In
+
+
+    app.post('/cashin',verifyPin, verifyToken,  async(req, res) => {
+      const details = req.body;
+      console.log(details)
+      const result = await pendingPaymentsCollection.insertOne(details)
+      res.send({result, message: 'ok'})
+    })
+
+    app.get('/requests', async(req, res) => {
+      const result = await pendingPaymentsCollection.find().toArray();
+      res.send(result)
+    } )
+
+    // TransAction
+
+    app.get('/transaction/:email',verifyToken, async(req, res) => {
+        const result = await paymentsCollection.find({email: req.params.email}).toArray();
+        res.send(result)
     })
 
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
